@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Northline — feedback widget demo</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #1c2430;
+        --muted: #5c6b7a;
+        --line: #e4e8ee;
+        --bg: #f6f4ef;
+        --card: #fff;
+        --brand: #1f4d3a;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        font-family: Georgia, "Times New Roman", serif;
+        color: var(--ink);
+        background: var(--bg);
+      }
+      header, main { max-width: 980px; margin: 0 auto; padding: 28px 24px; }
+      header { display: flex; justify-content: space-between; align-items: center; }
+      .brand { font-size: 22px; letter-spacing: 0.04em; }
+      nav { display: flex; gap: 18px; color: var(--muted); font-family: Segoe UI, sans-serif; font-size: 14px; }
+      .hero {
+        background: var(--card);
+        border-radius: 20px;
+        padding: 48px 40px;
+        box-shadow: 0 10px 30px rgba(28, 36, 48, 0.05);
+      }
+      h1 { margin: 0 0 12px; font-size: 42px; font-weight: 500; line-height: 1.15; }
+      .lead { margin: 0; max-width: 560px; color: var(--muted); font-family: Segoe UI, sans-serif; font-size: 16px; line-height: 1.6; }
+      .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 28px; }
+      .card { background: var(--card); border-radius: 16px; padding: 20px; }
+      .card h2 { margin: 0 0 8px; font-size: 20px; font-weight: 500; }
+      .card p { margin: 0; color: var(--muted); font-family: Segoe UI, sans-serif; font-size: 14px; line-height: 1.5; }
+      .dock {
+        position: fixed;
+        top: 16px;
+        left: 16px;
+        z-index: 20;
+        width: min(320px, calc(100vw - 32px));
+        background: #fff;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        box-shadow: 0 12px 30px rgba(16, 24, 40, 0.12);
+        padding: 14px;
+        font-family: Segoe UI, sans-serif;
+      }
+      .dock h2 { margin: 0 0 4px; font-size: 14px; font-weight: 650; }
+      .dock p { margin: 0 0 12px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+      .dock label { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; font-size: 12px; color: #3d4b5c; }
+      .dock input, .dock select {
+        border: 1px solid #d5dde6;
+        border-radius: 8px;
+        padding: 8px 10px;
+        font: inherit;
+        font-size: 13px;
+      }
+      .dock-row { display: flex; gap: 8px; }
+      .dock-row label { flex: 1; }
+      .dock button {
+        width: 100%;
+        margin-top: 4px;
+        min-height: 36px;
+        border: 0;
+        border-radius: 8px;
+        background: var(--brand);
+        color: #fff;
+        font: inherit;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      pre {
+        margin: 16px 0 0;
+        padding: 12px;
+        background: #f4f7fb;
+        border-radius: 10px;
+        overflow: auto;
+        font-size: 11px;
+        line-height: 1.45;
+        white-space: pre-wrap;
+      }
+      @media (max-width: 800px) {
+        .grid { grid-template-columns: 1fr; }
+        h1 { font-size: 32px; }
+        header { padding-top: 280px; }
+      }
+    </style>
+  </head>
+  <body>
+    <aside class="dock" aria-label="Widget controls">
+      <h2>Widget controls</h2>
+      <p>These controls live on the host page. They call the widget API. The button and the survey stay inside the embed.</p>
+      <label>
+        Placement
+        <select id="position">
+          <option value="bottom-right">Bottom right</option>
+          <option value="bottom-left">Bottom left</option>
+          <option value="top-right">Top right</option>
+          <option value="top-left">Top left</option>
+        </select>
+      </label>
+      <div class="dock-row">
+        <label>Offset X<input id="offset-x" type="number" value="24" min="0" max="200"></label>
+        <label>Offset Y<input id="offset-y" type="number" value="24" min="0" max="200"></label>
+      </div>
+      <label>Button label<input id="label" type="text" value="Feedback"></label>
+      <div class="dock-row">
+        <label>Button color<input id="color" type="color" value="#0A3D78"></label>
+        <label>Text color<input id="text-color" type="color" value="#ffffff"></label>
+      </div>
+      <button id="apply" type="button">Apply button settings</button>
+      <button id="open" type="button">Open survey</button>
+      <pre id="snippet"></pre>
+      <pre id="result">Submit the survey to see the mock response here.</pre>
+    </aside>
+
+    <header>
+      <div class="brand">Northline</div>
+      <nav>
+        <span>Shop</span>
+        <span>Stores</span>
+        <span>Journal</span>
+      </nav>
+    </header>
+    <main>
+      <section class="hero">
+        <h1>Furniture for quiet rooms.</h1>
+        <p class="lead">
+          This page is only a host site. The feedback button in the corner is the Melqart widget,
+          loaded by one script tag. Open it, answer the survey, and use next, previous, and submit.
+        </p>
+      </section>
+      <section class="grid">
+        <article class="card">
+          <h2>Oak table</h2>
+          <p>A solid table for everyday meals. Seats six without crowding the room.</p>
+        </article>
+        <article class="card">
+          <h2>Linen chair</h2>
+          <p>Light frame, washable cover, and a seat that stays comfortable through dinner.</p>
+        </article>
+        <article class="card">
+          <h2>Ceramic lamp</h2>
+          <p>Warm light for reading. The shade is linen and the base is handmade.</p>
+        </article>
+      </section>
+    </main>
+
+    <script>
+      window.MelqartFeedback = {
+        position: "bottom-right",
+        offsetX: 24,
+        offsetY: 24,
+        locale: "en",
+        button: {
+          label: { en: "Feedback", ar: "ملاحظات" },
+          background: "#0A3D78",
+          color: "#ffffff",
+        },
+      };
+    </script>
+    <script src="./widget.js"></script>
+    <script>
+      var snippet = document.getElementById("snippet");
+      var result = document.getElementById("result");
+
+      function showSnippet() {
+        var config = {
+          position: document.getElementById("position").value,
+          offsetX: Number(document.getElementById("offset-x").value) || 0,
+          offsetY: Number(document.getElementById("offset-y").value) || 0,
+          button: {
+            label: document.getElementById("label").value || "Feedback",
+            background: document.getElementById("color").value,
+            color: document.getElementById("text-color").value,
+          },
+        };
+        snippet.textContent =
+          "<script>\n  window.MelqartFeedback = " +
+          JSON.stringify(config, null, 2) +
+          ";\n<\/script>\n<script src=\"widget.js\"><\/script>";
+        return config;
+      }
+
+      document.getElementById("apply").addEventListener("click", function () {
+        var config = showSnippet();
+        window.MelqartFeedback.setPlacement({
+          position: config.position,
+          offsetX: config.offsetX,
+          offsetY: config.offsetY,
+        });
+        window.MelqartFeedback.setButton(config.button);
+      });
+
+      document.getElementById("open").addEventListener("click", function () {
+        window.MelqartFeedback.open();
+      });
+
+      document.addEventListener("melqart-feedback:submit", function (event) {
+        result.textContent = JSON.stringify(event.detail, null, 2);
+      });
+
+      showSnippet();
+    </script>
+  </body>
+</html>
