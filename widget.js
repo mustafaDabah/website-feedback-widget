@@ -3,23 +3,23 @@
  *
  * Embed on any page:
  *
+ *   <script src="mock-api.js"></script>
  *   <script>
  *     window.MelqartFeedback = {
- *       position: "bottom-right", // bottom-right | bottom-left | top-right | top-left
+ *       publicKey: "branch-demo",
+ *       apiBase: "mock",
+ *       previewRegion: "SA",
+ *       position: "bottom-right",
  *       offsetX: 24,
  *       offsetY: 24,
- *       locale: "en",             // en | ar
- *       button: {
- *         label: { en: "Feedback", ar: "ملاحظات" },
- *         background: "#0A3D78",
- *         color: "#ffffff"
- *       }
+ *       locale: "en"
  *     };
  *   </script>
  *   <script src="widget.js"></script>
  *
+ * The popup title, questions, timing, URL rules, and trigger come from
+ * GET /widget/{publicKey}. Placement stays in this snippet.
  * Question type codes match Melqart: MC, TE, FF, SL, NPS, MTX, FU.
- * Answers stay in the browser. Nothing is sent to a server.
  */
 (function () {
   if (window.__MELQART_FEEDBACK_WIDGET__) return;
@@ -225,12 +225,15 @@
     : {};
 
   var options = {
+    publicKey: "",
+    apiBase: "mock",
+    previewRegion: "",
     position: "bottom-right",
     offsetX: 24,
     offsetY: 24,
     locale: "en",
     zIndex: 2147483000,
-    survey: MOCK_SURVEY,
+    survey: null,
     button: {
       label: { en: "Feedback", ar: "ملاحظات" },
       background: "#0A3D78",
@@ -243,6 +246,8 @@
   mergeOptions(options, readDataset(script));
 
   var survey = options.survey || MOCK_SURVEY;
+  var rules = {};
+  var booting = 0;
   var state = {
     open: false,
     locale: options.locale === "ar" ? "ar" : "en",
@@ -250,7 +255,13 @@
     answers: {},
     errors: {},
     submitted: false,
+    submitting: false,
     lastResponse: null,
+    blocked: "",
+    waitingFor: "",
+    orderId: "",
+    metadata: {},
+    timer: 0,
   };
 
   var host;
@@ -264,6 +275,9 @@
     if (source.offsetY !== undefined && source.offsetY !== "") target.offsetY = Number(source.offsetY) || 0;
     if (source.locale === "ar" || source.locale === "en") target.locale = source.locale;
     if (source.zIndex) target.zIndex = Number(source.zIndex) || target.zIndex;
+    if (source.publicKey) target.publicKey = String(source.publicKey);
+    if (source.apiBase) target.apiBase = String(source.apiBase);
+    if (source.previewRegion) target.previewRegion = String(source.previewRegion);
     if (source.survey) target.survey = source.survey;
     if (source.button) {
       target.button = target.button || {};
@@ -289,6 +303,9 @@
       label: data.label,
       background: data.color,
       color: data.textColor,
+      publicKey: data.publicKey || data.key,
+      apiBase: data.apiBase,
+      previewRegion: data.region,
     };
   }
 
@@ -420,10 +437,12 @@
       });
     });
     return {
+      publicKey: options.publicKey,
       surveyId: survey.id,
       locale: state.locale,
       submittedAt: new Date().toISOString(),
       pageUrl: location.href,
+      metadata: readMetadata(),
       answers: answers,
     };
   }
@@ -715,9 +734,9 @@
     });
     return (
       '<div class="mf-thanks"><h3>' +
-      esc(ui("thanksTitle")) +
+      esc(thanksTitle()) +
       "</h3><p>" +
-      esc(ui("thanksBody")) +
+      esc(thanksBody()) +
       '</p><p class="mf-summary-title">' +
       esc(ui("summary")) +
       "</p><ul class=\"mf-summary\">" +
@@ -873,6 +892,7 @@
     ".mf-summary span{color:#5c6b7a;font-size:12px;}",
     ".mf-summary strong{font-size:13px;font-weight:600;}",
     "@media (max-width:560px){.mf-panel{left:12px !important;right:12px !important;width:auto;max-height:min(78dvh,720px);}}",
+    ":host([data-hidden=true]) .mf-launcher{display:none;}",
     "@media (prefers-reduced-motion:reduce){.mf-panel,.mf-launcher{transition:none;animation:none;}}",
     "@media print{:host{display:none !important;}}",
   ].join("");
@@ -909,9 +929,11 @@
   }
 
   function setOpen(open) {
+    var wasOpen = state.open;
     state.open = open;
     render(open ? "panel" : null);
-    if (!open) {
+    if (wasOpen && !open && !state.submitted) markCookie("closed");
+    if (!open && host && host.dataset.hidden !== "true") {
       var launcher = root.querySelector(".mf-launcher");
       if (launcher) launcher.focus();
     }
@@ -1046,12 +1068,26 @@
       render("error");
       return;
     }
-    state.submitted = true;
+    if (state.submitting) return;
+    state.submitting = true;
     state.lastResponse = buildResponse();
-    render("panel");
-    document.dispatchEvent(
-      new CustomEvent("melqart-feedback:submit", { detail: state.lastResponse })
-    );
+    markCookie("done");
+    apiRequest("POST", "/widget/" + encodeURIComponent(options.publicKey) + "/responses", state.lastResponse)
+      .then(function (res) {
+        state.lastResponse.saved = !!(res && res.ok);
+        state.lastResponse.responseId = res && res.data ? res.data.id : null;
+      })
+      .catch(function () {
+        state.lastResponse.saved = false;
+      })
+      .then(function () {
+        state.submitting = false;
+        state.submitted = true;
+        render("panel");
+        document.dispatchEvent(
+          new CustomEvent("melqart-feedback:submit", { detail: state.lastResponse })
+        );
+      });
   }
 
   function resetResponse() {
@@ -1123,6 +1159,284 @@
     }
   }
 
+  function thanksTitle() {
+    return (survey.thankYou && text(survey.thankYou)) || ui("thanksTitle");
+  }
+
+  function thanksBody() {
+    return (survey.thankYouBody && text(survey.thankYouBody)) || ui("thanksBody");
+  }
+
+  function readMetadata() {
+    var description = document.querySelector('meta[name="description"]');
+    var canonical = document.querySelector('link[rel="canonical"]');
+    return {
+      url: location.href,
+      path: location.pathname,
+      title: document.title || "",
+      description: description ? description.getAttribute("content") || "" : "",
+      language: document.documentElement.lang || "",
+      referrer: document.referrer || "",
+      canonical: canonical ? canonical.href : "",
+      event: state.metadata.event || "",
+      transaction: state.metadata.transaction || null,
+      custom: state.custom || {},
+    };
+  }
+
+  function cookieName() {
+    return "mf_" + String(options.publicKey || "widget").replace(/[^a-zA-Z0-9_-]/g, "");
+  }
+
+  function readCookie() {
+    var match = document.cookie.match(new RegExp("(?:^|; )" + cookieName() + "=([^;]*)"));
+    if (!match) return null;
+    try {
+      return JSON.parse(decodeURIComponent(match[1]));
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function writeCookie(data) {
+    var frequency = rules.frequency || {};
+    var minutes = Math.max(
+      Number(frequency.showAgainAfterMinutes) || 0,
+      Number(frequency.hideAfterDismissMinutes) || 0,
+      Number(frequency.hideAfterCompleteMinutes) || 0,
+      Number(frequency.showAgainAfterDays) * 24 * 60 || 0,
+      Number(frequency.hideAfterDismissDays) * 24 * 60 || 0,
+      Number(frequency.hideAfterCompleteDays) * 24 * 60 || 0,
+      24 * 60
+    );
+    var secure = location.protocol === "https:" ? "; Secure" : "";
+    document.cookie =
+      cookieName() +
+      "=" +
+      encodeURIComponent(JSON.stringify(data)) +
+      "; Path=/; SameSite=Lax; Max-Age=" +
+      Math.round(minutes * 60) +
+      secure;
+  }
+
+  function markCookie(field) {
+    var current = readCookie() || {};
+    current[field] = Date.now();
+    if (state.orderId) current.orderId = state.orderId;
+    current.key = options.publicKey;
+    writeCookie(current);
+  }
+
+  function clearCookie() {
+    document.cookie = cookieName() + "=; Path=/; Max-Age=0";
+  }
+
+  function ruleMinutes(frequency, minutesKey, daysKey) {
+    if (!frequency) return 0;
+    if (frequency[minutesKey] !== undefined && frequency[minutesKey] !== null && frequency[minutesKey] !== "") {
+      return Number(frequency[minutesKey]) || 0;
+    }
+    return (Number(frequency[daysKey]) || 0) * 24 * 60;
+  }
+
+  function frequencyBlock() {
+    var cookie = readCookie();
+    if (!cookie) return "";
+    var frequency = rules.frequency || {};
+    var now = Date.now();
+    function active(stamp, minutes) {
+      return !!(stamp && minutes && now - stamp < minutes * 60000);
+    }
+    if (active(cookie.done, ruleMinutes(frequency, "hideAfterCompleteMinutes", "hideAfterCompleteDays"))) return "completed";
+    if (active(cookie.closed, ruleMinutes(frequency, "hideAfterDismissMinutes", "hideAfterDismissDays"))) return "dismissed";
+    if (active(cookie.shown, ruleMinutes(frequency, "showAgainAfterMinutes", "showAgainAfterDays"))) return "shown";
+    return "";
+  }
+
+  function patternHits(pattern) {
+    if (!pattern) return false;
+    var path = location.pathname;
+    var href = location.href;
+    if (pattern.charAt(pattern.length - 1) === "*") {
+      var prefix = pattern.slice(0, -1);
+      return path.indexOf(prefix) === 0 || href.indexOf(prefix) !== -1;
+    }
+    return path.indexOf(pattern) !== -1 || href.indexOf(pattern) !== -1;
+  }
+
+  function urlBlock() {
+    var urls = rules.urls || {};
+    var exclude = urls.exclude || [];
+    var include = urls.include || [];
+    for (var i = 0; i < exclude.length; i += 1) {
+      if (patternHits(String(exclude[i]).trim())) return "url-excluded";
+    }
+    if (!include.length) return "";
+    for (var j = 0; j < include.length; j += 1) {
+      if (patternHits(String(include[j]).trim())) return "";
+    }
+    return "url";
+  }
+
+  function announce(show, reason) {
+    var detail = {
+      show: show,
+      reason: reason || "",
+      publicKey: options.publicKey,
+      title: survey.title || null,
+      trigger: rules.trigger || null,
+      metadata: readMetadata(),
+      cookie: readCookie(),
+    };
+    window.__MELQART_LAST_DECISION__ = detail;
+    document.dispatchEvent(new CustomEvent("melqart-feedback:decision", { detail: detail }));
+  }
+
+  function hideWidget(reason) {
+    state.blocked = reason;
+    state.waitingFor = "";
+    state.open = false;
+    if (host) host.dataset.hidden = "true";
+    if (root) render();
+    announce(false, reason);
+  }
+
+  function showLauncher(reason) {
+    state.blocked = "";
+    state.waitingFor = "";
+    if (host) host.dataset.hidden = "false";
+    markCookie("shown");
+    if (root) render(state.open ? "panel" : null);
+    announce(true, reason || "shown");
+  }
+
+  function applyPayload(data) {
+    survey = {
+      id: data.surveyId || options.publicKey,
+      title: data.title || MOCK_SURVEY.title,
+      description: data.description || MOCK_SURVEY.description,
+      thankYou: data.thankYou || null,
+      thankYouBody: data.thankYouBody || null,
+      pages: data.pages && data.pages.length ? data.pages : MOCK_SURVEY.pages,
+    };
+    rules = data.rules || {};
+    if (data.button) {
+      options.button = {
+        label: data.button.label || options.button.label,
+        background: data.button.background || options.button.background,
+        color: data.button.color || options.button.color,
+        radius: options.button.radius,
+      };
+    }
+    window.MelqartFeedbackSurvey = survey;
+  }
+
+  function apiRequest(method, path, body) {
+    if ((!options.apiBase || options.apiBase === "mock") && window.MelqartMockApi) {
+      return window.MelqartMockApi.request({ method: method, path: path, body: body });
+    }
+    var url = String(options.apiBase || "").replace(/\/$/, "") + path;
+    return fetch(url, {
+      method: method,
+      headers: { Accept: "application/json", "Content-Type": "application/json" },
+      body: body ? JSON.stringify(body) : undefined,
+    }).then(function (res) {
+      return res.json().catch(function () { return {}; }).then(function (data) {
+        return { ok: res.ok, status: res.status, data: data };
+      });
+    });
+  }
+
+  function armTrigger() {
+    var trigger = rules.trigger || { type: "button" };
+    var type = trigger.type || "button";
+    if (state.timer) window.clearTimeout(state.timer);
+    if (type === "delay") {
+      if (host) host.dataset.hidden = "true";
+      state.waitingFor = "";
+      render();
+      announce(false, "delay");
+      state.timer = window.setTimeout(function () {
+        showLauncher("delay");
+      }, (Number(trigger.delaySeconds) || 0) * 1000);
+      return;
+    }
+    if (type === "event") {
+      state.waitingFor = trigger.name || "transaction";
+      if (host) host.dataset.hidden = "true";
+      state.open = false;
+      render();
+      announce(false, "waiting-event");
+      return;
+    }
+    showLauncher("button");
+  }
+
+  function boot() {
+    var ticket = ++booting;
+    if (state.timer) window.clearTimeout(state.timer);
+    state.open = false;
+    state.page = 0;
+    state.answers = {};
+    state.errors = {};
+    state.submitted = false;
+    state.submitting = false;
+    state.orderId = "";
+    state.metadata = readMetadata();
+    if (!options.publicKey) {
+      hideWidget("missing-key");
+      return;
+    }
+    var path =
+      "/widget/" +
+      encodeURIComponent(options.publicKey) +
+      "?url=" +
+      encodeURIComponent(location.href);
+    if (options.previewRegion) path += "&region=" + encodeURIComponent(options.previewRegion);
+    apiRequest("GET", path)
+      .then(function (res) {
+        if (ticket !== booting) return;
+        var data = (res && res.data) || {};
+        if (!res || res.status === 404 || data.reason === "unknown-key") {
+          hideWidget("unknown-key");
+          return;
+        }
+        if (data.show === false) {
+          hideWidget(data.reason || "hidden");
+          return;
+        }
+        applyPayload(data);
+        var blocked = urlBlock() || frequencyBlock();
+        if (blocked) {
+          hideWidget(blocked);
+          return;
+        }
+        armTrigger();
+      })
+      .catch(function () {
+        if (ticket !== booting) return;
+        hideWidget("config-failed");
+      });
+  }
+
+  function track(name, detail) {
+    state.metadata.event = name;
+    state.metadata.transaction = detail || null;
+    if (detail && detail.orderId) state.orderId = String(detail.orderId);
+    if (state.blocked) {
+      announce(false, state.blocked);
+      return;
+    }
+    if (!state.waitingFor || state.waitingFor !== name) return;
+    var cookie = readCookie();
+    if (state.orderId && cookie && cookie.orderId === state.orderId) {
+      hideWidget("same-order");
+      return;
+    }
+    showLauncher("event");
+    setOpen(true);
+  }
+
   function mount() {
     host = document.createElement("melqart-feedback");
     document.documentElement.appendChild(host);
@@ -1138,10 +1452,15 @@
     root.addEventListener("change", onChange);
     root.addEventListener("input", onInput);
     root.addEventListener("keydown", onKeyDown);
-    render();
+    document.addEventListener("melqart:track", function (event) {
+      var detail = event.detail || {};
+      track(detail.name || detail.event || "transaction", detail.data || detail);
+    });
 
     var api = {
       open: function () {
+        if (state.blocked) return;
+        if (!host || host.dataset.hidden === "true") showLauncher("manual");
         setOpen(true);
       },
       close: function () {
@@ -1162,6 +1481,15 @@
         mergeOptions(options, { button: button || {} });
         render(state.open ? "panel" : null);
       },
+      setData: function (data) {
+        state.custom = Object.assign({}, state.custom || {}, data || {});
+      },
+      track: track,
+      reload: function (next) {
+        mergeOptions(options, next || {});
+        boot();
+      },
+      clearFrequency: clearCookie,
       getSurvey: function () {
         return survey;
       },
@@ -1171,6 +1499,7 @@
     };
     window.MelqartFeedback = api;
     window.MelqartFeedbackSurvey = survey;
+    boot();
   }
 
   if (document.body) mount();

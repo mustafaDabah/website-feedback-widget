@@ -4,6 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Northline — feedback widget demo</title>
+    <meta name="description" content="Northline furniture. Sample page metadata for the widget." />
+    <link rel="canonical" href="https://northline.example/index.html" />
     <style>
       :root {
         color-scheme: light;
@@ -42,7 +44,9 @@
         top: 16px;
         left: 16px;
         z-index: 20;
-        width: min(320px, calc(100vw - 32px));
+        width: min(340px, calc(100vw - 32px));
+        max-height: calc(100vh - 32px);
+        overflow: auto;
         background: #fff;
         border: 1px solid var(--line);
         border-radius: 14px;
@@ -74,6 +78,9 @@
         font-size: 13px;
         cursor: pointer;
       }
+      .dock button.secondary { background: #e7eeeb; color: var(--ink); }
+      .dock h3 { margin: 12px 0 6px; font-size: 12px; font-weight: 650; }
+      body { padding-left: 372px; }
       pre {
         margin: 16px 0 0;
         padding: 12px;
@@ -85,18 +92,61 @@
         white-space: pre-wrap;
       }
       @media (max-width: 800px) {
+        body { padding-left: 0; }
         .grid { grid-template-columns: 1fr; }
         h1 { font-size: 32px; }
-        header { padding-top: 280px; }
+        header { padding-top: 40px; }
       }
     </style>
   </head>
   <body>
-    <aside class="dock" aria-label="Widget controls">
-      <h2>Widget controls</h2>
-      <p>These controls live on the host page. They call the widget API. The button and the survey stay inside the embed.</p>
-      <label>
-        Placement
+    <aside class="dock" aria-label="Widget test console">
+      <h2>Test console</h2>
+      <p>This panel is the mock admin. Save a script key, then the widget loads that key from the mock API.</p>
+      <label>Script key<input id="public-key" list="keys" value="branch-demo"></label>
+      <datalist id="keys">
+        <option value="branch-demo"></option>
+        <option value="checkout-demo"></option>
+      </datalist>
+      <div class="dock-row">
+        <label>Popup title (EN)<input id="title-en" type="text"></label>
+        <label>Popup title (AR)<input id="title-ar" type="text"></label>
+      </div>
+      <div class="dock-row">
+        <label>Button label (EN)<input id="label-en" type="text"></label>
+        <label>Button label (AR)<input id="label-ar" type="text"></label>
+      </div>
+      <h3>Show again after</h3>
+      <div class="dock-row">
+        <label>Shown (minutes)<input id="again" type="number" min="0" value="0"></label>
+        <label>Dismissed (minutes)<input id="dismiss" type="number" min="0" value="0"></label>
+      </div>
+      <label>Completed (minutes)<input id="complete" type="number" min="0" value="0"></label>
+      <p>Use 0 to show every time. 1 is enough to test the cookie with the team.</p>
+      <label>Trigger
+        <select id="trigger">
+          <option value="button">Button</option>
+          <option value="delay">Delay</option>
+          <option value="event">Event</option>
+        </select>
+      </label>
+      <div class="dock-row">
+        <label>Delay (seconds)<input id="delay" type="number" min="0" value="0"></label>
+        <label>Event name<input id="event-name" type="text" value="transaction"></label>
+      </div>
+      <label>URL include<input id="url-include" type="text" placeholder="/checkout, /index.html"></label>
+      <label>URL exclude<input id="url-exclude" type="text" placeholder="/admin"></label>
+      <label>Allowed regions<input id="regions" type="text" value="SA, AE, JO"></label>
+      <label>Visitor region (stands in for IP)
+        <select id="visitor-region">
+          <option value="SA">SA</option>
+          <option value="AE">AE</option>
+          <option value="JO">JO</option>
+          <option value="EG">EG</option>
+          <option value="US">US</option>
+        </select>
+      </label>
+      <label>Placement
         <select id="position">
           <option value="bottom-right">Bottom right</option>
           <option value="bottom-left">Bottom left</option>
@@ -104,17 +154,12 @@
           <option value="top-left">Top left</option>
         </select>
       </label>
-      <div class="dock-row">
-        <label>Offset X<input id="offset-x" type="number" value="24" min="0" max="200"></label>
-        <label>Offset Y<input id="offset-y" type="number" value="24" min="0" max="200"></label>
-      </div>
-      <label>Button label<input id="label" type="text" value="Feedback"></label>
-      <div class="dock-row">
-        <label>Button color<input id="color" type="color" value="#0A3D78"></label>
-        <label>Text color<input id="text-color" type="color" value="#ffffff"></label>
-      </div>
-      <button id="apply" type="button">Apply button settings</button>
-      <button id="open" type="button">Open survey</button>
+      <button id="save" type="button">Save and apply</button>
+      <button id="load" class="secondary" type="button">Load this key</button>
+      <label>Order id<input id="order-id" type="text" value="10023"></label>
+      <button id="fire" class="secondary" type="button">Fire transaction event</button>
+      <button id="clear-cookie" class="secondary" type="button">Clear frequency cookie</button>
+      <pre id="decision">Waiting for the widget decision.</pre>
       <pre id="snippet"></pre>
       <pre id="result">Submit the survey to see the mock response here.</pre>
     </aside>
@@ -153,59 +198,148 @@
 
     <script>
       window.MelqartFeedback = {
+        publicKey: "branch-demo",
+        apiBase: "mock",
+        previewRegion: "SA",
         position: "bottom-right",
         offsetX: 24,
         offsetY: 24,
         locale: "en",
-        button: {
-          label: { en: "Feedback", ar: "ملاحظات" },
-          background: "#0A3D78",
-          color: "#ffffff",
-        },
       };
     </script>
+    <script src="./mock-api.js"></script>
     <script src="./widget.js"></script>
     <script>
+      var decision = document.getElementById("decision");
       var snippet = document.getElementById("snippet");
       var result = document.getElementById("result");
 
-      function showSnippet() {
-        var config = {
-          position: document.getElementById("position").value,
-          offsetX: Number(document.getElementById("offset-x").value) || 0,
-          offsetY: Number(document.getElementById("offset-y").value) || 0,
+      function splitList(value) {
+        return String(value || "")
+          .split(",")
+          .map(function (item) { return item.trim(); })
+          .filter(Boolean);
+      }
+
+      function field(id) {
+        return document.getElementById(id);
+      }
+
+      function formRecord() {
+        return {
+          surveyId: "mock-" + field("public-key").value.trim(),
+          title: { en: field("title-en").value, ar: field("title-ar").value },
+          description: {
+            en: "Tell us about your last visit. It takes about a minute.",
+            ar: "أخبرنا عن زيارتك الأخيرة. يستغرق ذلك حوالي دقيقة.",
+          },
+          thankYou: { en: "Thank you", ar: "شكراً لك" },
+          thankYouBody: {
+            en: "Your response was recorded on the mock API.",
+            ar: "تم حفظ إجابتك في واجهة التجربة.",
+          },
           button: {
-            label: document.getElementById("label").value || "Feedback",
-            background: document.getElementById("color").value,
-            color: document.getElementById("text-color").value,
+            label: { en: field("label-en").value, ar: field("label-ar").value },
+            background: "#0A3D78",
+            color: "#ffffff",
+          },
+          rules: {
+            urls: {
+              include: splitList(field("url-include").value),
+              exclude: splitList(field("url-exclude").value),
+            },
+            regions: splitList(field("regions").value),
+            frequency: {
+              showAgainAfterMinutes: Number(field("again").value) || 0,
+              hideAfterDismissMinutes: Number(field("dismiss").value) || 0,
+              hideAfterCompleteMinutes: Number(field("complete").value) || 0,
+            },
+            trigger: {
+              type: field("trigger").value,
+              name: field("event-name").value || "transaction",
+              delaySeconds: Number(field("delay").value) || 0,
+            },
           },
         };
+      }
+
+      function fillForm(record) {
+        if (!record) return;
+        field("title-en").value = (record.title && record.title.en) || "";
+        field("title-ar").value = (record.title && record.title.ar) || "";
+        field("label-en").value = (record.button && record.button.label && record.button.label.en) || "";
+        field("label-ar").value = (record.button && record.button.label && record.button.label.ar) || "";
+        var frequency = (record.rules && record.rules.frequency) || {};
+        field("again").value = frequency.showAgainAfterMinutes || 0;
+        field("dismiss").value = frequency.hideAfterDismissMinutes || 0;
+        field("complete").value = frequency.hideAfterCompleteMinutes || 0;
+        var trigger = (record.rules && record.rules.trigger) || {};
+        field("trigger").value = trigger.type || "button";
+        field("event-name").value = trigger.name || "transaction";
+        field("delay").value = trigger.delaySeconds || 0;
+        var urls = (record.rules && record.rules.urls) || {};
+        field("url-include").value = (urls.include || []).join(", ");
+        field("url-exclude").value = (urls.exclude || []).join(", ");
+        field("regions").value = ((record.rules && record.rules.regions) || []).join(", ");
+      }
+
+      function showSnippet() {
+        var config = {
+          publicKey: field("public-key").value.trim(),
+          apiBase: "mock",
+          previewRegion: field("visitor-region").value,
+          position: field("position").value,
+          offsetX: 24,
+          offsetY: 24,
+          locale: "en",
+        };
         snippet.textContent =
-          "<script>\n  window.MelqartFeedback = " +
+          "<script src=\"mock-api.js\"><\/script>\n<script>\n  window.MelqartFeedback = " +
           JSON.stringify(config, null, 2) +
           ";\n<\/script>\n<script src=\"widget.js\"><\/script>";
         return config;
       }
 
-      document.getElementById("apply").addEventListener("click", function () {
-        var config = showSnippet();
-        window.MelqartFeedback.setPlacement({
-          position: config.position,
-          offsetX: config.offsetX,
-          offsetY: config.offsetY,
-        });
-        window.MelqartFeedback.setButton(config.button);
+      field("load").addEventListener("click", function () {
+        fillForm(window.MelqartMockApi.get(field("public-key").value.trim()));
+        showSnippet();
       });
 
-      document.getElementById("open").addEventListener("click", function () {
-        window.MelqartFeedback.open();
+      field("save").addEventListener("click", function () {
+        var key = field("public-key").value.trim();
+        if (!key) return;
+        window.MelqartMockApi.save(key, formRecord());
+        var config = showSnippet();
+        window.MelqartFeedback.reload(config);
+      });
+
+      field("fire").addEventListener("click", function () {
+        var name = field("event-name").value || "transaction";
+        window.MelqartFeedback.track(name, {
+          orderId: field("order-id").value || "10023",
+          amount: 240,
+          currency: "SAR",
+        });
+      });
+
+      field("clear-cookie").addEventListener("click", function () {
+        window.MelqartFeedback.clearFrequency();
+        window.MelqartFeedback.reload(showSnippet());
+      });
+
+      document.addEventListener("melqart-feedback:decision", function (event) {
+        decision.textContent = JSON.stringify(event.detail, null, 2);
       });
 
       document.addEventListener("melqart-feedback:submit", function (event) {
         result.textContent = JSON.stringify(event.detail, null, 2);
       });
 
+      fillForm(window.MelqartMockApi.get("branch-demo"));
       showSnippet();
+      if (window.__MELQART_LAST_DECISION__) {
+        decision.textContent = JSON.stringify(window.__MELQART_LAST_DECISION__, null, 2);
+      }
     </script>
   </body>
 </html>
