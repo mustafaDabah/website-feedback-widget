@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Northline checkout</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: Georgia, "Times New Roman", serif;
+        background: #f6f4ef;
+        color: #1c2430;
+      }
+      main { max-width: 720px; margin: 0 auto; padding: 48px 24px; }
+      p { color: #5c6b7a; line-height: 1.5; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Checkout complete</h1>
+      <p>This page only has the copied script. There is no test console and no mock API file.</p>
+    </main>
+    <script>
+      window.MelqartFeedback = {
+        "publicKey": "branch-demo",
+        "previewRegion": "SA",
+        "position": "bottom-right",
+        "offsetX": 24,
+        "offsetY": 24,
+        "locale": "en",
+        "title": { "en": "How was your visit?", "ar": "كيف كانت زيارتك؟" },
+        "description": {
+          "en": "Tell us about your last visit. It takes about a minute.",
+          "ar": "أخبرنا عن زيارتك الأخيرة. يستغرق ذلك حوالي دقيقة."
+        },
+        "thankYou": { "en": "Thank you", "ar": "شكراً لك" },
+        "thankYouBody": { "en": "We received your answers.", "ar": "وصلتنا إجاباتك." },
+        "button": {
+          "label": { "en": "Feedback", "ar": "ملاحظات" },
+          "background": "#0A3D78",
+          "color": "#ffffff"
+        },
+        "rules": {
+          "urls": { "include": [], "exclude": [] },
+          "regions": ["SA", "AE", "JO"],
+          "frequency": {
+            "showAgainAfterMinutes": 0,
+            "hideAfterDismissMinutes": 0,
+            "hideAfterCompleteMinutes": 0
+          },
+          "trigger": { "type": "button", "name": "transaction", "delaySeconds": 0 }
+        }
+      };
+    </script>
+    <script src="http://127.0.0.1:8765/widget.js"></script>
+  </body>
+</html>

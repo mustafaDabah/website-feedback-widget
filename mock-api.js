@@ -24,8 +24,8 @@
       },
       thankYou: { en: "Thank you", ar: "شكراً لك" },
       thankYouBody: {
-        en: "Your response was recorded on the mock API.",
-        ar: "تم حفظ إجابتك في واجهة التجربة.",
+        en: "We received your answers.",
+        ar: "وصلتنا إجاباتك.",
       },
       button: {
         label: { en: "Feedback", ar: "ملاحظات" },
@@ -52,8 +52,8 @@
       },
       thankYou: { en: "Thank you", ar: "شكراً لك" },
       thankYouBody: {
-        en: "Your response was recorded on the mock API.",
-        ar: "تم حفظ إجابتك في واجهة التجربة.",
+        en: "We received your answers.",
+        ar: "وصلتنا إجاباتك.",
       },
       button: {
         label: { en: "Rate order", ar: "قيّم الطلب" },

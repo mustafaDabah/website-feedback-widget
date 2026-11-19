@@ -278,6 +278,13 @@
     if (source.publicKey) target.publicKey = String(source.publicKey);
     if (source.apiBase) target.apiBase = String(source.apiBase);
     if (source.previewRegion) target.previewRegion = String(source.previewRegion);
+    if (source.surveyId) target.surveyId = source.surveyId;
+    if (source.title) target.title = source.title;
+    if (source.description) target.description = source.description;
+    if (source.thankYou) target.thankYou = source.thankYou;
+    if (source.thankYouBody) target.thankYouBody = source.thankYouBody;
+    if (source.rules) target.rules = source.rules;
+    if (source.pages) target.pages = source.pages;
     if (source.survey) target.survey = source.survey;
     if (source.button) {
       target.button = target.button || {};
@@ -931,8 +938,15 @@
   function setOpen(open) {
     var wasOpen = state.open;
     state.open = open;
+    if (wasOpen && !open && state.submitted) {
+      afterSubmitClose();
+      return;
+    }
+    if (wasOpen && !open) {
+      afterDismiss();
+      return;
+    }
     render(open ? "panel" : null);
-    if (wasOpen && !open && !state.submitted) markCookie("closed");
     if (!open && host && host.dataset.hidden !== "true") {
       var launcher = root.querySelector(".mf-launcher");
       if (launcher) launcher.focus();
@@ -1234,23 +1248,84 @@
   function ruleMinutes(frequency, minutesKey, daysKey) {
     if (!frequency) return 0;
     if (frequency[minutesKey] !== undefined && frequency[minutesKey] !== null && frequency[minutesKey] !== "") {
-      return Number(frequency[minutesKey]) || 0;
+      var minutes = Number(frequency[minutesKey]);
+      return minutes > 0 ? minutes : 0;
     }
-    return (Number(frequency[daysKey]) || 0) * 24 * 60;
+    var days = Number(frequency[daysKey]);
+    return days > 0 ? days * 24 * 60 : 0;
+  }
+
+  function minutesFor(field) {
+    var frequency = rules.frequency || {};
+    if (field === "closed") return ruleMinutes(frequency, "hideAfterDismissMinutes", "hideAfterDismissDays");
+    if (field === "done") return ruleMinutes(frequency, "hideAfterCompleteMinutes", "hideAfterCompleteDays");
+    return ruleMinutes(frequency, "showAgainAfterMinutes", "showAgainAfterDays");
   }
 
   function frequencyBlock() {
     var cookie = readCookie();
     if (!cookie) return "";
-    var frequency = rules.frequency || {};
-    var now = Date.now();
-    function active(stamp, minutes) {
-      return !!(stamp && minutes && now - stamp < minutes * 60000);
+    var latestField = "";
+    var latestStamp = 0;
+    ["shown", "closed", "done"].forEach(function (field) {
+      if (cookie[field] && cookie[field] >= latestStamp) {
+        latestStamp = cookie[field];
+        latestField = field;
+      }
+    });
+    if (!latestField) return "";
+    var minutes = minutesFor(latestField);
+    if (!minutes || Date.now() - latestStamp >= minutes * 60000) return "";
+    if (latestField === "done") return "completed";
+    if (latestField === "closed") return "dismissed";
+    return "shown";
+  }
+
+  function cooldownRemaining() {
+    var cookie = readCookie();
+    var reason = frequencyBlock();
+    if (!cookie || !reason) return 0;
+    var field = reason === "completed" ? "done" : reason === "dismissed" ? "closed" : "shown";
+    return Math.max(0, cookie[field] + minutesFor(field) * 60000 - Date.now());
+  }
+
+  function scheduleReturn(waitMs) {
+    if (state.cooldownTimer) window.clearTimeout(state.cooldownTimer);
+    if (!waitMs || waitMs < 0) return;
+    state.cooldownTimer = window.setTimeout(function () {
+      state.blocked = "";
+      state.submitted = false;
+      state.page = 0;
+      state.answers = {};
+      state.errors = {};
+      armTrigger();
+    }, waitMs);
+  }
+
+  function afterDismiss() {
+    markCookie("closed");
+    var minutes = minutesFor("closed");
+    if (minutes > 0) {
+      hideWidget("dismissed");
+      scheduleReturn(minutes * 60000);
+      return;
     }
-    if (active(cookie.done, ruleMinutes(frequency, "hideAfterCompleteMinutes", "hideAfterCompleteDays"))) return "completed";
-    if (active(cookie.closed, ruleMinutes(frequency, "hideAfterDismissMinutes", "hideAfterDismissDays"))) return "dismissed";
-    if (active(cookie.shown, ruleMinutes(frequency, "showAgainAfterMinutes", "showAgainAfterDays"))) return "shown";
-    return "";
+    render();
+  }
+
+  function afterSubmitClose() {
+    markCookie("done");
+    var minutes = minutesFor("done");
+    state.submitted = false;
+    state.page = 0;
+    state.answers = {};
+    state.errors = {};
+    if (minutes > 0) {
+      hideWidget("completed");
+      scheduleReturn(minutes * 60000);
+      return;
+    }
+    showLauncher("after-submit");
   }
 
   function patternHits(pattern) {
@@ -1331,7 +1406,31 @@
     window.MelqartFeedbackSurvey = survey;
   }
 
+  function regionBlock() {
+    var regions = (rules.regions || []).filter(Boolean);
+    if (!regions.length || !options.previewRegion) return "";
+    return regions.indexOf(options.previewRegion) === -1 ? "region" : "";
+  }
+
+  function inlinePayload() {
+    if (!options.rules && !options.title) return null;
+    return {
+      show: true,
+      surveyId: options.surveyId || options.publicKey,
+      title: options.title,
+      description: options.description,
+      thankYou: options.thankYou,
+      thankYouBody: options.thankYouBody,
+      button: options.button,
+      rules: options.rules || {},
+      pages: options.pages,
+    };
+  }
+
   function apiRequest(method, path, body) {
+    if ((!options.apiBase || options.apiBase === "mock") && !window.MelqartMockApi) {
+      return Promise.resolve({ ok: true, status: 201, data: { id: "local-preview" } });
+    }
     if ((!options.apiBase || options.apiBase === "mock") && window.MelqartMockApi) {
       return window.MelqartMockApi.request({ method: method, path: path, body: body });
     }
@@ -1375,6 +1474,7 @@
   function boot() {
     var ticket = ++booting;
     if (state.timer) window.clearTimeout(state.timer);
+    if (state.cooldownTimer) window.clearTimeout(state.cooldownTimer);
     state.open = false;
     state.page = 0;
     state.answers = {};
@@ -1383,6 +1483,24 @@
     state.submitting = false;
     state.orderId = "";
     state.metadata = readMetadata();
+    if (!options.publicKey) options.publicKey = "preview";
+    var inline = inlinePayload();
+    if (inline) {
+      applyPayload(inline);
+      var inlineRegion = regionBlock();
+      if (inlineRegion) {
+        hideWidget(inlineRegion);
+        return;
+      }
+      var inlineBlock = urlBlock() || frequencyBlock();
+      if (inlineBlock) {
+        hideWidget(inlineBlock);
+        scheduleReturn(cooldownRemaining());
+        return;
+      }
+      armTrigger();
+      return;
+    }
     if (!options.publicKey) {
       hideWidget("missing-key");
       return;
@@ -1406,9 +1524,15 @@
           return;
         }
         applyPayload(data);
+        var region = regionBlock();
+        if (region) {
+          hideWidget(region);
+          return;
+        }
         var blocked = urlBlock() || frequencyBlock();
         if (blocked) {
           hideWidget(blocked);
+          scheduleReturn(cooldownRemaining());
           return;
         }
         armTrigger();
